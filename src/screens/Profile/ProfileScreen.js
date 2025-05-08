@@ -13,8 +13,7 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../screens/firebase";
-import { doc, getDoc } from "firebase/firestore";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function ProfileScreen() {
@@ -48,12 +47,12 @@ export default function ProfileScreen() {
             style={{ width: 24, height: 24 }}
           />
         </TouchableOpacity>
-      ),
+      )
     });
   }, [navigation]);
 
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchData = async () => {
       try {
         const userId = auth.currentUser?.uid;
         if (!userId) return;
@@ -62,7 +61,9 @@ export default function ProfileScreen() {
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-          setProfile(docSnap.data());
+          const data = docSnap.data();
+          setProfile(data);
+          setFavoriteMeals(data.favoriteMeals || []);
         } else {
           Alert.alert("No Profile Found", "Please create your profile.");
           navigation.replace("CreateProfile");
@@ -74,31 +75,31 @@ export default function ProfileScreen() {
       }
     };
 
-    const loadFavorites = async () => {
-      try {
-        const stored = await AsyncStorage.getItem("favoriteMeals");
-        if (stored) {
-          setFavoriteMeals(JSON.parse(stored));
-        }
-      } catch (err) {
-        console.error("Failed to load favorite meals", err);
-      }
-    };
-
-    fetchProfile();
-    loadFavorites();
+    fetchData();
   }, []);
 
   const toggleFavorite = async (meal) => {
     try {
-      const updated = favoriteMeals.some((m) => m.idMeal === meal.idMeal)
-        ? favoriteMeals.filter((m) => m.idMeal !== meal.idMeal)
-        : [...favoriteMeals, meal];
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
 
-      setFavoriteMeals(updated);
-      await AsyncStorage.setItem("favoriteMeals", JSON.stringify(updated));
+      const userRef = doc(db, "users", userId);
+      const userSnap = await getDoc(userRef);
+
+      let currentFavorites = [];
+      if (userSnap.exists()) {
+        currentFavorites = userSnap.data().favoriteMeals || [];
+      }
+
+      const exists = currentFavorites.some((m) => m.idMeal === meal.idMeal);
+      const updatedFavorites = exists
+        ? currentFavorites.filter((m) => m.idMeal !== meal.idMeal)
+        : [...currentFavorites, meal];
+
+      await updateDoc(userRef, { favoriteMeals: updatedFavorites });
+      setFavoriteMeals(updatedFavorites);
     } catch (err) {
-      console.error("Failed to update favorite meals", err);
+      console.error("Failed to update favorite meals:", err);
     }
   };
 
