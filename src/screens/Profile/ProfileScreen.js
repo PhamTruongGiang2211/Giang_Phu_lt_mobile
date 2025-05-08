@@ -104,15 +104,20 @@ export default function ProfileScreen() {
   };
 
   const renderMealItem = ({ item }) => (
-    <View style={styles.mealCard}>
-      <TouchableOpacity
-        onPress={() => navigation.navigate("Recipe", { item })}
-      >
-        <Image source={{ uri: item.strMealThumb }} style={styles.mealImage} />
-        <Text style={styles.mealName} numberOfLines={1}>
-          {item.strMeal}
-        </Text>
-      </TouchableOpacity>
+    <TouchableOpacity
+      onPress={() => navigation.navigate("App", {
+        screen: "Main",
+        params: {
+          screen: "Recipe",
+          params: { item },
+        },
+      })}
+      style={styles.mealCard}
+    >
+      <Image source={{ uri: item.strMealThumb }} style={styles.mealImage} />
+      <Text style={styles.mealName} numberOfLines={1}>
+        {item.strMeal}
+      </Text>
       <TouchableOpacity
         style={styles.favoriteIcon}
         onPress={() => toggleFavorite(item)}
@@ -127,7 +132,7 @@ export default function ProfileScreen() {
           color="#e91e63"
         />
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 
   if (loading) {

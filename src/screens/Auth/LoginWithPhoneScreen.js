@@ -86,7 +86,7 @@ export default function LoginWithPhoneScreen({ navigation }) {
       const user = userCredential.user;
 
       // Kiểm tra xem user đã tạo hồ sơ chưa trong Firestore
-      const profileDoc = await getDoc(doc(db, "profiles", user.uid));
+      const profileDoc = await getDoc(doc(db, "users", user.uid));
       if (profileDoc.exists()) {
         navigation.replace("App");
       } else {
