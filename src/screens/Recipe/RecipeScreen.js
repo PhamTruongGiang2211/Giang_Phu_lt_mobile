@@ -24,17 +24,10 @@ import {
 } from "firebase/firestore";
 import styles from "./styles";
 
-export default function RecipeScreen({ navigation, route }) {
+export default function RecipeScreen(props) {
+  const { navigation, route } = props;
   const item = route.params?.item;
-  const [ingredients, setIngredients] = useState(item.ingredients || []);
-  const [likes, setLikes] = useState([]);
-  const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState("");
-  const [userName, setUserName] = useState("Anonymous");
-  const [replyTo, setReplyTo] = useState(null);
-  const [showReplies, setShowReplies] = useState({});
-
-  const recipeId = item.idMeal;
+  const [ingredients, setIngredients] = useState(item.ingredients); // Lưu nguyên liệu vào state
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -177,6 +170,8 @@ export default function RecipeScreen({ navigation, route }) {
     await updateDoc(docRef, {
       comments: updated,
     });
+  const onPressIngredient = (ingredientName) => {
+    navigation.navigate("IngredientsDetails", { ingredientName });
   };
 
   const renderComment = (comment) => {
@@ -358,3 +353,79 @@ export default function RecipeScreen({ navigation, route }) {
     </KeyboardAvoidingView>
   );
 }
+
+function convertYoutubeUrl(url) {
+  const videoId = url.split("v=")[1]?.split("&")[0];
+  return `https://www.youtube.com/embed/${videoId}`;
+}
+
+// Thay dấu • bằng khoảng trắng đầu dòng
+function formatInstructions(instructions) {
+  return instructions
+    .split(". ")
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .map((sentence) => `  ${sentence}${sentence.endsWith(".") ? "" : "."}`) // Thụt đầu dòng
+    .join("\n\n");
+}
+
+const styles = StyleSheet.create({
+  container: {
+    padding: 20,
+  },
+  recipeTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  recipeImage: {
+    width: "100%",
+    height: 250,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  recipeDescription: {
+    fontSize: 16,
+    color: "gray",
+    lineHeight: 24,
+    textAlign: "justify",
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  ingredientButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,      // Giảm khoảng cách dọc
+    paddingHorizontal: 20,
+    marginBottom: 4,         // Giảm khoảng cách giữa các nguyên liệu
+    borderRadius: 25,
+    backgroundColor: "transparent",
+  },
+  ingredientImage: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 10,
+  },
+  ingredientButtonText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  videoContainer: {
+    height: 200,
+    marginTop: 10,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  webview: {
+    flex: 1,
+  },
+});
+

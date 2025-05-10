@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useEffect, useState, useCallback } from "react";
+import React, { useLayoutEffect, useEffect, useState } from "react";
 import {
   FlatList,
   Text,
@@ -6,21 +6,18 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
+  ScrollView,
 } from "react-native";
 import MenuImage from "../../components/MenuImage/MenuImage";
 import axios from "axios";
 import { getMealDetailsById, extractIngredients } from "../../data/mealApi";
-import { Ionicons } from "@expo/vector-icons";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "../firebase";
-import { useFocusEffect } from "@react-navigation/native";
 
 export default function HomeScreen(props) {
   const { navigation } = props;
   const [meals, setMeals] = useState([]);
   const [popularMeals, setPopularMeals] = useState([]);
   const [popularIngredients, setPopularIngredients] = useState([]);
-  const [favorites, setFavorites] = useState([]);
+  const [recentlyViewedMeals, setRecentlyViewedMeals] = useState([]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -46,11 +43,15 @@ export default function HomeScreen(props) {
 
         setMeals(allMeals);
 
-        const randomPopularMeals = getRandomItems(allMeals, 20);
+        const mealsWithYoutube = allMeals.filter(
+          (meal) => meal.strYoutube && meal.strYoutube.trim() !== ""
+        );
+        const randomPopularMeals = getRandomItems(mealsWithYoutube, 15);
         setPopularMeals(randomPopularMeals);
 
-        const ingredients = allMeals.flatMap((meal) => extractIngredients(meal));
-
+        const ingredients = allMeals.flatMap((meal) =>
+          extractIngredients(meal)
+        );
         const ingredientCount = ingredients.reduce((acc, ingredient) => {
           acc[ingredient.name] = (acc[ingredient.name] || 0) + 1;
           return acc;
@@ -59,14 +60,17 @@ export default function HomeScreen(props) {
         const sortedIngredients = Object.entries(ingredientCount)
           .map(([name, count]) => ({ name, count }))
           .sort((a, b) => b.count - a.count)
-          .slice(0, 20)
+          .slice(0, 30)
           .map((item) => ({
             name: item.name,
             count: item.count,
             image: `https://www.themealdb.com/images/ingredients/${item.name}.png`,
           }));
 
-        const randomPopularIngredients = getRandomItems(sortedIngredients, 20);
+        const randomPopularIngredients = getRandomItems(
+          sortedIngredients,
+          15
+        );
         setPopularIngredients(randomPopularIngredients);
       } catch (error) {
         console.error("Lỗi khi lấy dữ liệu món ăn:", error);
@@ -75,30 +79,6 @@ export default function HomeScreen(props) {
 
     fetchData();
   }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      const loadFavorites = async () => {
-        try {
-          const userId = auth.currentUser?.uid;
-          if (!userId) return;
-
-          const userRef = doc(db, "users", userId);
-          const userSnap = await getDoc(userRef);
-
-          if (userSnap.exists() && userSnap.data().favoriteMeals) {
-            setFavorites(userSnap.data().favoriteMeals);
-          } else {
-            setFavorites([]);
-          }
-        } catch (error) {
-          console.error("Lỗi khi tải danh sách yêu thích:", error);
-        }
-      };
-
-      loadFavorites();
-    }, [])
-  );
 
   const getRandomItems = (arr, count) => {
     const shuffled = [...arr];
@@ -116,6 +96,13 @@ export default function HomeScreen(props) {
       const ingredients = extractIngredients(meal);
       meal.ingredients = ingredients;
       meal.title = meal.strMeal;
+
+      setRecentlyViewedMeals((prev) => {
+        const filtered = prev.filter((m) => m.idMeal !== meal.idMeal);
+        const updated = [meal, ...filtered];
+        return updated.slice(0, 10);
+      });
+
       navigation.navigate("Recipe", { item: meal });
     }
   };
@@ -130,64 +117,15 @@ export default function HomeScreen(props) {
     }
   };
 
-  const toggleFavorite = async (meal) => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) return;
-
-      const userRef = doc(db, "users", userId);
-      const userSnap = await getDoc(userRef);
-
-      let favorites = [];
-      if (userSnap.exists() && userSnap.data().favoriteMeals) {
-        favorites = userSnap.data().favoriteMeals;
-      }
-
-      const exists = favorites.some((fav) => fav.idMeal === meal.idMeal);
-      let updatedFavorites;
-
-      if (exists) {
-        updatedFavorites = favorites.filter((fav) => fav.idMeal !== meal.idMeal);
-      } else {
-        updatedFavorites = [...favorites, meal];
-      }
-
-      await updateDoc(userRef, { favoriteMeals: updatedFavorites });
-      setFavorites(updatedFavorites);
-    } catch (error) {
-      console.error("Lỗi khi cập nhật yêu thích:", error);
-    }
-  };
-
-  const renderRecipeItem = ({ item }) => {
-    const isFavorite = favorites.some((fav) => fav.idMeal === item.idMeal);
-
-    return (
-      <View style={styles.gridItem}>
-        <TouchableOpacity
-          onPress={() => onPressRecipe(item)}
-          style={{ width: "100%" }}
-        >
-          <Image style={styles.photo} source={{ uri: item.strMealThumb }} />
-          <Text style={styles.title}>{item.strMeal}</Text>
-          <Text style={styles.category}>Recipe</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.favoriteIconWrapper}
-          onPress={() => toggleFavorite(item)}
-        >
-          <View style={styles.heartBackground}>
-            <Ionicons
-              name={isFavorite ? "heart" : "heart-outline"}
-              size={20}
-              color={isFavorite ? "red" : "gray"}
-            />
-          </View>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  const renderRecipeItem = ({ item }) => (
+    <TouchableOpacity
+      onPress={() => onPressRecipe(item)}
+      style={styles.gridItem}
+    >
+      <Image style={styles.photo} source={{ uri: item.strMealThumb }} />
+      <Text style={styles.title}>{item.strMeal}</Text>
+    </TouchableOpacity>
+  );
 
   const renderIngredientItem = ({ item }) => (
     <TouchableOpacity
@@ -207,19 +145,8 @@ export default function HomeScreen(props) {
   );
 
   return (
-    <View style={styles.container}>
-      {renderSectionHeader({ title: "All Meals" })}
-      <FlatList
-        data={meals}
-        renderItem={renderRecipeItem}
-        keyExtractor={(item, index) => item.idMeal + "_" + index}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.flatListContainer}
-        horizontal={false}
-      />
-
-      {renderSectionHeader({ title: "Popular Meals" })}
+    <ScrollView style={styles.container}>
+      {renderSectionHeader({ title: "Popular Meals (with YouTube)" })}
       <FlatList
         data={popularMeals}
         renderItem={renderRecipeItem}
@@ -227,8 +154,23 @@ export default function HomeScreen(props) {
         numColumns={2}
         columnWrapperStyle={styles.row}
         contentContainerStyle={styles.flatListContainer}
-        horizontal={false}
+        scrollEnabled={false}
       />
+
+      {recentlyViewedMeals.length > 0 && (
+        <>
+          {renderSectionHeader({ title: "Recently Viewed Meals" })}
+          <FlatList
+            data={recentlyViewedMeals}
+            renderItem={renderRecipeItem}
+            keyExtractor={(item, index) => item.idMeal + "_recent_" + index}
+            numColumns={2}
+            columnWrapperStyle={styles.row}
+            contentContainerStyle={styles.flatListContainer}
+            scrollEnabled={false}
+          />
+        </>
+      )}
 
       {renderSectionHeader({ title: "Popular Ingredients" })}
       <FlatList
@@ -238,9 +180,9 @@ export default function HomeScreen(props) {
         numColumns={2}
         columnWrapperStyle={styles.row}
         contentContainerStyle={styles.flatListContainer}
-        horizontal={false}
+        scrollEnabled={false}
       />
-    </View>
+    </ScrollView>
   );
 }
 
@@ -257,7 +199,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 10,
     minHeight: 150,
-    position: "relative",
   },
   row: {
     flex: 1,
@@ -294,21 +235,5 @@ const styles = StyleSheet.create({
   flatListContainer: {
     marginBottom: 20,
   },
-  favoriteIconWrapper: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-  heartBackground: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 4,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
 });
+
