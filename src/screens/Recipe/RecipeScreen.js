@@ -6,33 +6,20 @@ import {
   Text,
   Image,
   TouchableOpacity,
-  TextInput,
   FlatList,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { firebase, db, auth } from "../../screens/firebase";
-import {
-  doc,
-  updateDoc,
-  getDoc,
-  arrayUnion,
-  arrayRemove,
-  setDoc,
-} from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import styles from "./styles";
+import LikeButton from "../../components/LikeButton/LikeButton.js";
+import CommentsSection from "../../components/CommentsSection/CommentsSection.js";
 
 export default function RecipeScreen({ navigation, route }) {
   const item = route.params?.item;
   const [ingredients, setIngredients] = useState(item.ingredients || []);
-  const [likes, setLikes] = useState([]);
-  const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState("");
   const [userName, setUserName] = useState("Anonymous");
-  const [replyTo, setReplyTo] = useState(null);
-  const [showReplies, setShowReplies] = useState({});
 
   const recipeId = item.idMeal;
 
@@ -53,14 +40,10 @@ export default function RecipeScreen({ navigation, route }) {
   }, [navigation]);
 
   useEffect(() => {
-    const fetchRecipeData = async () => {
+    const fetchRecipeDoc = async () => {
       const docRef = doc(db, "recipes", recipeId);
       const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setLikes(data.likes || []);
-        setComments(data.comments || []);
-      } else {
+      if (!docSnap.exists()) {
         await setDoc(docRef, {
           likes: [],
           comments: [],
@@ -82,265 +65,9 @@ export default function RecipeScreen({ navigation, route }) {
       }
     };
 
-    fetchRecipeData();
+    fetchRecipeDoc();
     getCurrentUserName();
   }, []);
-
-  const handleLike = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert("Login Required", "You must be logged in to like recipes.");
-      return;
-    }
-
-    const userId = user.uid;
-    const docRef = doc(db, "recipes", recipeId);
-
-    if (likes.includes(userId)) {
-      await updateDoc(docRef, {
-        likes: arrayRemove(userId),
-      });
-      setLikes(likes.filter((id) => id !== userId));
-    } else {
-      await updateDoc(docRef, {
-        likes: arrayUnion(userId),
-      });
-      setLikes([...likes, userId]);
-    }
-  };
-
-  const handleCommentSubmit = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert("Login Required", "You must be logged in to comment.");
-      return;
-    }
-
-    if (newComment.trim() === "") return;
-
-    const commentObj = {
-      id: Date.now().toString(),
-      text: newComment,
-      userId: user.uid,
-      username: userName,
-      timestamp: Date.now(),
-      replyTo: replyTo?.username || null,
-      parentId: replyTo?.id || null,
-      likes: [],
-    };
-
-    const docRef = doc(db, "recipes", recipeId);
-    await updateDoc(docRef, {
-      comments: arrayUnion(commentObj),
-    });
-
-    setComments([...comments, commentObj]);
-    setNewComment("");
-    setReplyTo(null);
-  };
-
-  const handleDeleteComment = async (commentId) => {
-    const updatedComments = comments.filter(c => c.id !== commentId && c.parentId !== commentId);
-    const docRef = doc(db, "recipes", recipeId);
-    await updateDoc(docRef, { comments: updatedComments });
-    setComments(updatedComments);
-  };
-
-  const toggleReplies = (commentId) => {
-    setShowReplies((prev) => ({
-      ...prev,
-      [commentId]: !prev[commentId],
-    }));
-  };
-
-  const formatTime = (timestamp) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
-  const toggleCommentLike = async (commentId) => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const updated = comments.map((c) => {
-      if (c.id === commentId) {
-        const alreadyLiked = c.likes?.includes(user.uid);
-        const updatedLikes = alreadyLiked
-          ? c.likes.filter((id) => id !== user.uid)
-          : [...(c.likes || []), user.uid];
-        return { ...c, likes: updatedLikes };
-      }
-      return c;
-    });
-
-    setComments(updated);
-    const docRef = doc(db, "recipes", recipeId);
-    await updateDoc(docRef, {
-      comments: updated,
-    });
-  };
-
-  const renderComment = (comment) => {
-    const getAllReplies = (parentId) => {
-      const directReplies = comments.filter((c) => c.parentId === parentId);
-      let all = [...directReplies];
-      directReplies.forEach(reply => {
-        all = [...all, ...getAllReplies(reply.id)];
-      });
-      return all;
-    };
-
-    const childReplies = getAllReplies(comment.id);
-    const replyCount = childReplies.length;
-    const isOwnComment = auth.currentUser?.uid === comment.userId;
-
-    return (
-      <View key={comment.id} style={{ marginBottom: 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-          <Text style={{ fontWeight: "bold" }}>
-            {comment.username} <Text style={{ color: "gray", fontSize: 12 }}>{formatTime(comment.timestamp)}</Text>
-          </Text>
-          {isOwnComment && (
-            <TouchableOpacity onPress={() => handleDeleteComment(comment.id)}>
-              <Text style={{ color: "red" }}>Delete</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <Text>
-          {comment.replyTo && (
-            <Text style={{ color: "gray", fontStyle: "italic" }}>Replying to {comment.replyTo}: </Text>
-          )}
-          {comment.text}
-        </Text>
-
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
-          <TouchableOpacity onPress={() => toggleCommentLike(comment.id)} style={{ marginRight: 8 }}>
-            <Ionicons
-              name="heart"
-              size={16}
-              color={comment.likes?.includes(auth.currentUser?.uid) ? "red" : "gray"}
-            />
-          </TouchableOpacity>
-          <Text style={{ marginRight: 16 }}>{comment.likes?.length || 0}</Text>
-
-          <TouchableOpacity onPress={() => setReplyTo(comment)}>
-            <Text style={{ color: "#007AFF", marginRight: 16 }}>Reply</Text>
-          </TouchableOpacity>
-          {replyCount > 0 && (
-            <TouchableOpacity onPress={() => toggleReplies(comment.id)}>
-              <Text style={{ color: "#007AFF" }}>
-                {showReplies[comment.id] ? "Hide" : `View ${replyCount} repl${replyCount > 1 ? "ies" : "y"}`}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {showReplies[comment.id] &&
-          childReplies.map((reply) => {
-            const isOwnReply = auth.currentUser?.uid === reply.userId;
-            return (
-              <View key={reply.id} style={{ paddingLeft: 16, marginTop: 8 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ fontWeight: "bold" }}>
-                    {reply.username} <Text style={{ color: "gray", fontSize: 12 }}>{formatTime(reply.timestamp)}</Text>
-                  </Text>
-                  {isOwnReply && (
-                    <TouchableOpacity onPress={() => handleDeleteComment(reply.id)}>
-                      <Text style={{ color: "red" }}>Delete</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <Text>
-                  {reply.replyTo && (
-                    <Text style={{ color: "gray", fontStyle: "italic" }}>Replying to {reply.replyTo}: </Text>
-                  )}
-                  {reply.text}
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
-                  <TouchableOpacity onPress={() => toggleCommentLike(reply.id)} style={{ marginRight: 8 }}>
-                    <Ionicons
-                      name="heart"
-                      size={16}
-                      color={reply.likes?.includes(auth.currentUser?.uid) ? "red" : "gray"}
-                    />
-                  </TouchableOpacity>
-                  <Text style={{ marginRight: 16 }}>{reply.likes?.length || 0}</Text>
-
-                  <TouchableOpacity onPress={() => setReplyTo(reply)}>
-                    <Text style={{ color: "#007AFF" }}>Reply</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
-          })}
-      </View>
-    );
-  };
-
-  const renderHeader = () => (
-    <View>
-      <Text style={styles.recipeTitle}>{item.title}</Text>
-      <Image source={{ uri: item.strMealThumb }} style={styles.recipeImage} />
-      <Text style={styles.recipeDescription}>{item.strInstructions}</Text>
-
-      <TouchableOpacity
-        style={styles.ingredientButton}
-        onPress={() =>
-          navigation.navigate("IngredientScreen", {
-            ingredients: ingredients,
-            title: item.title,
-          })
-        }
-      >
-        <Text style={styles.ingredientButtonText}>View Ingredients</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={handleLike}
-        style={{ marginTop: 16, flexDirection: "row", alignItems: "center" }}
-      >
-        <Ionicons
-          name="heart"
-          size={24}
-          color={likes.includes(auth.currentUser?.uid) ? "red" : "gray"}
-        />
-        <Text style={{ marginLeft: 8 }}>{likes.length} Likes</Text>
-      </TouchableOpacity>
-
-      <Text style={{ fontWeight: "bold", fontSize: 18, marginTop: 24, marginBottom: 8 }}>
-        Comments ({comments.filter((c) => !c.parentId).length})
-      </Text>
-    </View>
-  );
-
-  const renderFooter = () => (
-    <View style={{ marginTop: 16, paddingBottom: 40 }}>
-      {replyTo && (
-        <View style={{ marginBottom: 8 }}>
-          <Text>
-            Replying to: <Text style={{ fontWeight: "bold" }}>{replyTo.username}</Text>
-          </Text>
-          <TouchableOpacity onPress={() => setReplyTo(null)}>
-            <Text style={{ color: "red" }}>Cancel Reply</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      <TextInput
-        value={newComment}
-        onChangeText={setNewComment}
-        placeholder="Write a comment..."
-        style={{
-          borderColor: "#ccc",
-          borderWidth: 1,
-          borderRadius: 8,
-          padding: 10,
-          marginBottom: 8,
-        }}
-      />
-      <TouchableOpacity onPress={handleCommentSubmit} style={styles.ingredientButton}>
-        <Text style={styles.ingredientButtonText}>Submit Comment</Text>
-      </TouchableOpacity>
-    </View>
-  );
 
   return (
     <KeyboardAvoidingView
@@ -348,12 +75,34 @@ export default function RecipeScreen({ navigation, route }) {
       style={{ flex: 1 }}
     >
       <FlatList
-        data={comments.filter((c) => !c.parentId)}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeader}
-        contentContainerStyle={{ padding: 16 }}
-        renderItem={({ item }) => renderComment(item)}
-        ListFooterComponent={renderFooter}
+        data={[]} // Không cần dữ liệu nếu chỉ dùng header + comment component
+        keyExtractor={() => Math.random().toString()}
+        ListHeaderComponent={
+          <View style={{ padding: 16 }}>
+            <Text style={styles.recipeTitle}>{item.title}</Text>
+            <Image source={{ uri: item.strMealThumb }} style={styles.recipeImage} />
+            <Text style={styles.recipeDescription}>{item.strInstructions}</Text>
+
+            <TouchableOpacity
+              style={styles.ingredientButton}
+              onPress={() =>
+                navigation.navigate("IngredientScreen", {
+                  ingredients: ingredients,
+                  title: item.title,
+                })
+              }
+            >
+              <Text style={styles.ingredientButtonText}>View Ingredients</Text>
+            </TouchableOpacity>
+
+            {/* Component xử lý like */}
+            <LikeButton recipeId={recipeId} />
+
+            {/* Component xử lý bình luận */}
+            <CommentsSection recipeId={recipeId} userName={userName} />
+          </View>
+        }
+        contentContainerStyle={{ paddingBottom: 40 }}
       />
     </KeyboardAvoidingView>
   );
