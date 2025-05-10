@@ -1,21 +1,53 @@
-import React, { useLayoutEffect, useState } from "react";
-import { View, Text, Image, TouchableOpacity, ScrollView } from "react-native";
-import styles from "./styles"; // Đảm bảo bạn chỉ sử dụng import này
+// RecipeScreen.js
 
-export default function RecipeScreen(props) {
-  const { navigation, route } = props;
+import React, { useLayoutEffect, useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+  TextInput,
+  FlatList,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { firebase, db, auth } from "../../screens/firebase";
+import {
+  doc,
+  updateDoc,
+  getDoc,
+  arrayUnion,
+  arrayRemove,
+  setDoc,
+} from "firebase/firestore";
+import styles from "./styles";
+
+export default function RecipeScreen({ navigation, route }) {
   const item = route.params?.item;
-  const [ingredients, setIngredients] = useState(item.ingredients); // Lưu nguyên liệu vào state
+  const [ingredients, setIngredients] = useState(item.ingredients || []);
+  const [likes, setLikes] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [userName, setUserName] = useState("Anonymous");
+  const [replyTo, setReplyTo] = useState(null);
+  const [showReplies, setShowReplies] = useState({});
+  const [replyLimit, setReplyLimit] = useState({});
+  const [editingComment, setEditingComment] = useState(null);
+  const [editedText, setEditedText] = useState("");
+
+  const recipeId = item.idMeal;
 
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <TouchableOpacity
-          onPress={() => navigation.navigate("Home")} // Đảm bảo "Home" là đúng tên màn hình Home của bạn
+          onPress={() => navigation.navigate("Home")}
           style={{ marginRight: 15 }}
         >
           <Image
-            source={require("../../../assets/icons/home.png")} // Đường dẫn đến icon home
+            source={require("../../../assets/icons/home.png")}
             style={{ width: 24, height: 24 }}
           />
         </TouchableOpacity>
@@ -23,27 +55,432 @@ export default function RecipeScreen(props) {
     });
   }, [navigation]);
 
-  const onPressIngredient = () => {
-    navigation.navigate("IngredientScreen", {
-      ingredients: ingredients, // Truyền nguyên liệu đến IngredientScreen
-      title: item.title, // Truyền tiêu đề công thức
+  useEffect(() => {
+    const fetchRecipeData = async () => {
+      const docRef = doc(db, "recipes", recipeId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setLikes(data.likes || []);
+        setComments(data.comments || []);
+      } else {
+        await setDoc(docRef, {
+          likes: [],
+          comments: [],
+        });
+      }
+    };
+
+    const getCurrentUserName = async () => {
+      const user = auth.currentUser;
+      if (user) {
+        const userDocRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          if (data.username) {
+            setUserName(data.username);
+          }
+        }
+      }
+    };
+
+    fetchRecipeData();
+    getCurrentUserName();
+  }, []);
+
+  const handleLike = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Login Required", "You must be logged in to like recipes.");
+      return;
+    }
+
+    const userId = user.uid;
+    const docRef = doc(db, "recipes", recipeId);
+
+    if (likes.includes(userId)) {
+      await updateDoc(docRef, {
+        likes: arrayRemove(userId),
+      });
+      setLikes(likes.filter((id) => id !== userId));
+    } else {
+      await updateDoc(docRef, {
+        likes: arrayUnion(userId),
+      });
+      setLikes([...likes, userId]);
+    }
+  };
+
+  const handleCommentSubmit = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Login Required", "You must be logged in to comment.");
+      return;
+    }
+
+    if (newComment.trim() === "") return;
+
+    const commentObj = {
+      id: Date.now().toString(),
+      text: newComment,
+      userId: user.uid,
+      username: userName,
+      timestamp: Date.now(),
+      replyTo: replyTo?.username || null,
+      parentId: replyTo?.id || null,
+      likes: [],
+    };
+
+    const docRef = doc(db, "recipes", recipeId);
+    await updateDoc(docRef, {
+      comments: arrayUnion(commentObj),
+    });
+
+    setComments([...comments, commentObj]);
+    setNewComment("");
+    setReplyTo(null);
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    const updatedComments = comments.filter(
+      (c) => c.id !== commentId && c.parentId !== commentId
+    );
+    const docRef = doc(db, "recipes", recipeId);
+    await updateDoc(docRef, { comments: updatedComments });
+    setComments(updatedComments);
+  };
+
+  const handleEditComment = async () => {
+    const updated = comments.map((c) =>
+      c.id === editingComment.id ? { ...c, text: editedText } : c
+    );
+    const docRef = doc(db, "recipes", recipeId);
+    await updateDoc(docRef, { comments: updated });
+    setComments(updated);
+    setEditingComment(null);
+    setEditedText("");
+  };
+
+  const toggleReplies = (commentId) => {
+    setShowReplies((prev) => ({
+      ...prev,
+      [commentId]: !prev[commentId],
+    }));
+    setReplyLimit((prev) => ({
+      ...prev,
+      [commentId]: 3,
+    }));
+  };
+
+  const viewMoreReplies = (commentId, currentCount) => {
+    setReplyLimit((prev) => ({
+      ...prev,
+      [commentId]: currentCount + 3,
+    }));
+  };
+
+  const formatTime = (timestamp) => {
+    return new Date(timestamp).toLocaleString();
+  };
+
+  const toggleCommentLike = async (commentId) => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const updated = comments.map((c) => {
+      if (c.id === commentId) {
+        const alreadyLiked = c.likes?.includes(user.uid);
+        const updatedLikes = alreadyLiked
+          ? c.likes.filter((id) => id !== user.uid)
+          : [...(c.likes || []), user.uid];
+        return { ...c, likes: updatedLikes };
+      }
+      return c;
+    });
+
+    setComments(updated);
+    const docRef = doc(db, "recipes", recipeId);
+    await updateDoc(docRef, {
+      comments: updated,
     });
   };
 
-  return (
-    // Bao bọc nội dung trong ScrollView
-    <ScrollView style={styles.container}>
-      <View>
-        {/* Công thức, ảnh, mô tả */}
-        <Text style={styles.recipeTitle}>{item.title}</Text>
-        <Image source={{ uri: item.strMealThumb }} style={styles.recipeImage} />
-        <Text style={styles.recipeDescription}>{item.strInstructions}</Text>
+  const renderComment = (comment) => {
+    const getAllReplies = (parentId) =>
+      comments.filter((c) => c.parentId === parentId);
 
-        {/* Nút hiển thị nguyên liệu */}
-        <TouchableOpacity style={styles.ingredientButton} onPress={onPressIngredient}>
-          <Text style={styles.ingredientButtonText}>View Ingredients</Text>
-        </TouchableOpacity>
+    const allReplies = getAllReplies(comment.id);
+    const visibleReplies = showReplies[comment.id]
+      ? allReplies.slice(0, replyLimit[comment.id] || 3)
+      : [];
+
+    const isOwnComment = auth.currentUser?.uid === comment.userId;
+
+    return (
+      <View key={comment.id} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <Text style={{ fontWeight: "bold" }}>
+            {comment.username}{" "}
+            <Text style={{ color: "gray", fontSize: 12 }}>
+              {formatTime(comment.timestamp)}
+            </Text>
+          </Text>
+          {isOwnComment && (
+            <View style={{ flexDirection: "row" }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditingComment(comment);
+                  setEditedText(comment.text);
+                }}
+                style={{ marginRight: 8 }}
+              >
+                <Text style={{ color: "orange" }}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleDeleteComment(comment.id)}>
+                <Text style={{ color: "red" }}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {editingComment?.id === comment.id ? (
+          <>
+            <TextInput
+              value={editedText}
+              onChangeText={setEditedText}
+              style={{
+                borderColor: "#ccc",
+                borderWidth: 1,
+                borderRadius: 8,
+                padding: 6,
+                marginTop: 4,
+              }}
+            />
+            <TouchableOpacity
+              onPress={handleEditComment}
+              style={[styles.ingredientButton, { marginTop: 6 }]}
+            >
+              <Text style={styles.ingredientButtonText}>Save</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <Text>
+            {comment.replyTo && (
+              <Text style={{ color: "gray", fontStyle: "italic" }}>
+                Replying to {comment.replyTo}:{" "}
+              </Text>
+            )}
+            {comment.text}
+          </Text>
+        )}
+
+        <View style={{ flexDirection: "row", marginTop: 4 }}>
+          <TouchableOpacity onPress={() => toggleCommentLike(comment.id)}>
+            <Ionicons
+              name="heart"
+              size={16}
+              color={
+                comment.likes?.includes(auth.currentUser?.uid)
+                  ? "red"
+                  : "gray"
+              }
+            />
+          </TouchableOpacity>
+          <Text style={{ marginHorizontal: 8 }}>{comment.likes?.length || 0}</Text>
+          <TouchableOpacity onPress={() => setReplyTo(comment)}>
+            <Text style={{ color: "#007AFF" }}>Reply</Text>
+          </TouchableOpacity>
+          {allReplies.length > 0 && (
+            <TouchableOpacity
+              onPress={() => toggleReplies(comment.id)}
+              style={{ marginLeft: 12 }}
+            >
+              <Text style={{ color: "#007AFF" }}>
+                {showReplies[comment.id]
+                  ? "Hide replies"
+                  : `View ${allReplies.length} repl${
+                      allReplies.length > 1 ? "ies" : "y"
+                    }`}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {visibleReplies.map((reply) => {
+          const isOwnReply = auth.currentUser?.uid === reply.userId;
+          return (
+            <View key={reply.id} style={{ paddingLeft: 16, marginTop: 8 }}>
+              <View
+                style={{ flexDirection: "row", justifyContent: "space-between" }}
+              >
+                <Text style={{ fontWeight: "bold" }}>
+                  {reply.username}{" "}
+                  <Text style={{ color: "gray", fontSize: 12 }}>
+                    {formatTime(reply.timestamp)}
+                  </Text>
+                </Text>
+                {isOwnReply && (
+                  <View style={{ flexDirection: "row" }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingComment(reply);
+                        setEditedText(reply.text);
+                      }}
+                      style={{ marginRight: 8 }}
+                    >
+                      <Text style={{ color: "orange" }}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteComment(reply.id)}
+                    >
+                      <Text style={{ color: "red" }}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+              {editingComment?.id === reply.id ? (
+                <>
+                  <TextInput
+                    value={editedText}
+                    onChangeText={setEditedText}
+                    style={{
+                      borderColor: "#ccc",
+                      borderWidth: 1,
+                      borderRadius: 8,
+                      padding: 6,
+                      marginTop: 4,
+                    }}
+                  />
+                  <TouchableOpacity
+                    onPress={handleEditComment}
+                    style={[styles.ingredientButton, { marginTop: 6 }]}
+                  >
+                    <Text style={styles.ingredientButtonText}>Save</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text>
+                  {reply.replyTo && (
+                    <Text style={{ color: "gray", fontStyle: "italic" }}>
+                      Replying to {reply.replyTo}:{" "}
+                    </Text>
+                  )}
+                  {reply.text}
+                </Text>
+              )}
+              <View style={{ flexDirection: "row", marginTop: 4 }}>
+                <TouchableOpacity onPress={() => toggleCommentLike(reply.id)}>
+                  <Ionicons
+                    name="heart"
+                    size={16}
+                    color={
+                      reply.likes?.includes(auth.currentUser?.uid)
+                        ? "red"
+                        : "gray"
+                    }
+                  />
+                </TouchableOpacity>
+                <Text style={{ marginHorizontal: 8 }}>{reply.likes?.length || 0}</Text>
+                <TouchableOpacity onPress={() => setReplyTo(reply)}>
+                  <Text style={{ color: "#007AFF" }}>Reply</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })}
+
+        {showReplies[comment.id] &&
+          allReplies.length > visibleReplies.length && (
+            <TouchableOpacity
+              onPress={() =>
+                viewMoreReplies(comment.id, visibleReplies.length)
+              }
+              style={{ paddingLeft: 16, marginTop: 6 }}
+            >
+              <Text style={{ color: "#007AFF" }}>View more replies</Text>
+            </TouchableOpacity>
+          )}
       </View>
-    </ScrollView>
+    );
+  };
+
+  const renderHeader = () => (
+    <View>
+      <Text style={styles.recipeTitle}>{item.title}</Text>
+      <Image source={{ uri: item.strMealThumb }} style={styles.recipeImage} />
+      <Text style={styles.recipeDescription}>{item.strInstructions}</Text>
+      <TouchableOpacity
+        style={styles.ingredientButton}
+        onPress={() =>
+          navigation.navigate("IngredientScreen", {
+            ingredients: ingredients,
+            title: item.title,
+          })
+        }
+      >
+        <Text style={styles.ingredientButtonText}>View Ingredients</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={handleLike}
+        style={{ marginTop: 16, flexDirection: "row", alignItems: "center" }}
+      >
+        <Ionicons
+          name="heart"
+          size={24}
+          color={likes.includes(auth.currentUser?.uid) ? "red" : "gray"}
+        />
+        <Text style={{ marginLeft: 8 }}>{likes.length} Likes</Text>
+      </TouchableOpacity>
+      <Text style={{ fontWeight: "bold", fontSize: 18, marginTop: 24, marginBottom: 8 }}>
+        Comments ({comments.filter((c) => !c.parentId).length})
+      </Text>
+    </View>
+  );
+
+  const renderFooter = () => (
+    <View style={{ marginTop: 16, paddingBottom: 40 }}>
+      {replyTo && (
+        <View style={{ marginBottom: 8 }}>
+          <Text>
+            Replying to: <Text style={{ fontWeight: "bold" }}>{replyTo.username}</Text>
+          </Text>
+          <TouchableOpacity onPress={() => setReplyTo(null)}>
+            <Text style={{ color: "red" }}>Cancel Reply</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      <TextInput
+        value={newComment}
+        onChangeText={setNewComment}
+        placeholder="Write a comment..."
+        style={{
+          borderColor: "#ccc",
+          borderWidth: 1,
+          borderRadius: 8,
+          padding: 10,
+          marginBottom: 8,
+        }}
+      />
+      <TouchableOpacity onPress={handleCommentSubmit} style={styles.ingredientButton}>
+        <Text style={styles.ingredientButtonText}>Submit Comment</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={{ flex: 1 }}
+    >
+      <FlatList
+        data={comments.filter((c) => !c.parentId)}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderHeader}
+        contentContainerStyle={{ padding: 16 }}
+        renderItem={({ item }) => renderComment(item)}
+        ListFooterComponent={renderFooter}
+      />
+    </KeyboardAvoidingView>
   );
 }
