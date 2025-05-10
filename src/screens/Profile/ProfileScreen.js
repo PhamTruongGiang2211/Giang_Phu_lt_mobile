@@ -13,8 +13,8 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../../screens/firebase";
-import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
-import { Ionicons } from "@expo/vector-icons";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import BookmarkButton from "../../components/BookMarkButton/BookMarkButton.js";
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
@@ -47,7 +47,7 @@ export default function ProfileScreen() {
             style={{ width: 24, height: 24 }}
           />
         </TouchableOpacity>
-      )
+      ),
     });
   }, [navigation]);
 
@@ -78,60 +78,55 @@ export default function ProfileScreen() {
     fetchData();
   }, []);
 
-  const toggleFavorite = async (meal) => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) return;
+  const handleToggleFavorite = async (mealToToggle) => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
 
+    try {
       const userRef = doc(db, "users", userId);
       const userSnap = await getDoc(userRef);
 
-      let currentFavorites = [];
       if (userSnap.exists()) {
-        currentFavorites = userSnap.data().favoriteMeals || [];
+        const currentFavorites = userSnap.data().favoriteMeals || [];
+        const exists = currentFavorites.some(
+          (fav) => fav.idMeal === mealToToggle.idMeal
+        );
+        const updatedFavorites = exists
+          ? currentFavorites.filter((fav) => fav.idMeal !== mealToToggle.idMeal)
+          : [...currentFavorites, mealToToggle];
+
+        await updateDoc(userRef, { favoriteMeals: updatedFavorites });
+        setFavoriteMeals(updatedFavorites);
       }
-
-      const exists = currentFavorites.some((m) => m.idMeal === meal.idMeal);
-      const updatedFavorites = exists
-        ? currentFavorites.filter((m) => m.idMeal !== meal.idMeal)
-        : [...currentFavorites, meal];
-
-      await updateDoc(userRef, { favoriteMeals: updatedFavorites });
-      setFavoriteMeals(updatedFavorites);
-    } catch (err) {
-      console.error("Failed to update favorite meals:", err);
+    } catch (error) {
+      Alert.alert("Error", error.message);
     }
   };
 
   const renderMealItem = ({ item }) => (
     <TouchableOpacity
-      onPress={() => navigation.navigate("App", {
-        screen: "Main",
-        params: {
-          screen: "Recipe",
-          params: { item },
-        },
-      })}
+      onPress={() =>
+        navigation.navigate("App", {
+          screen: "Main",
+          params: {
+            screen: "Recipe",
+            params: { item },
+          },
+        })
+      }
       style={styles.mealCard}
     >
       <Image source={{ uri: item.strMealThumb }} style={styles.mealImage} />
       <Text style={styles.mealName} numberOfLines={1}>
         {item.strMeal}
       </Text>
-      <TouchableOpacity
-        style={styles.favoriteIcon}
-        onPress={() => toggleFavorite(item)}
-      >
-        <Ionicons
-          name={
-            favoriteMeals.some((m) => m.idMeal === item.idMeal)
-              ? "heart"
-              : "heart-outline"
-          }
-          size={20}
-          color="#e91e63"
+      <View style={styles.favoriteIcon}>
+        <BookmarkButton
+          meal={item}
+          favorites={favoriteMeals || []}
+          onToggle={handleToggleFavorite}
         />
-      </TouchableOpacity>
+      </View>
     </TouchableOpacity>
   );
 
@@ -184,7 +179,7 @@ export default function ProfileScreen() {
           <Text style={styles.editButtonText}>Edit Profile</Text>
         </TouchableOpacity>
 
-        <Text style={styles.sectionHeader}>Favorite Meals</Text>
+        <Text style={styles.sectionHeader}>Marked Meals</Text>
         {favoriteMeals.length === 0 ? (
           <Text style={styles.noFavorites}>No favorites yet.</Text>
         ) : (
@@ -282,8 +277,5 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 8,
     right: 8,
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 4,
   },
 });

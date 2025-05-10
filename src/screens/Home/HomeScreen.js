@@ -8,9 +8,9 @@ import {
   StyleSheet,
 } from "react-native";
 import MenuImage from "../../components/MenuImage/MenuImage";
+import BookmarkButton from "../../components/BookMarkButton/BookMarkButton.js";
 import axios from "axios";
 import { getMealDetailsById, extractIngredients } from "../../data/mealApi";
-import { Ionicons } from "@expo/vector-icons";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { useFocusEffect } from "@react-navigation/native";
@@ -160,8 +160,6 @@ export default function HomeScreen(props) {
   };
 
   const renderRecipeItem = ({ item }) => {
-    const isFavorite = favorites.some((fav) => fav.idMeal === item.idMeal);
-
     return (
       <View style={styles.gridItem}>
         <TouchableOpacity
@@ -173,18 +171,11 @@ export default function HomeScreen(props) {
           <Text style={styles.category}>Recipe</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.favoriteIconWrapper}
-          onPress={() => toggleFavorite(item)}
-        >
-          <View style={styles.heartBackground}>
-            <Ionicons
-              name={isFavorite ? "heart" : "heart-outline"}
-              size={20}
-              color={isFavorite ? "red" : "gray"}
-            />
-          </View>
-        </TouchableOpacity>
+        <BookmarkButton
+          meal={item}
+          favorites={favorites}
+          onToggle={toggleFavorite}
+        />
       </View>
     );
   };
@@ -294,23 +285,4 @@ const styles = StyleSheet.create({
   flatListContainer: {
     marginBottom: 20,
   },
-  favoriteIconWrapper: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    zIndex: 1,
-  },
-  heartBackground: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 4,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 3,
-  },
 });
-
-
