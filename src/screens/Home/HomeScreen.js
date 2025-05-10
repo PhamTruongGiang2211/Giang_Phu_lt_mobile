@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useEffect, useState } from "react";
+import React, { useLayoutEffect, useEffect, useState, useCallback } from "react";
 import {
   FlatList,
   Text,
@@ -10,9 +10,10 @@ import {
 import MenuImage from "../../components/MenuImage/MenuImage";
 import axios from "axios";
 import { getMealDetailsById, extractIngredients } from "../../data/mealApi";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { FontAwesome } from "@expo/vector-icons";
 import { Ionicons } from "@expo/vector-icons";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "../firebase";
+import { useFocusEffect } from "@react-navigation/native";
 
 export default function HomeScreen(props) {
   const { navigation } = props;
@@ -48,9 +49,7 @@ export default function HomeScreen(props) {
         const randomPopularMeals = getRandomItems(allMeals, 20);
         setPopularMeals(randomPopularMeals);
 
-        const ingredients = allMeals.flatMap((meal) =>
-          extractIngredients(meal)
-        );
+        const ingredients = allMeals.flatMap((meal) => extractIngredients(meal));
 
         const ingredientCount = ingredients.reduce((acc, ingredient) => {
           acc[ingredient.name] = (acc[ingredient.name] || 0) + 1;
@@ -67,10 +66,7 @@ export default function HomeScreen(props) {
             image: `https://www.themealdb.com/images/ingredients/${item.name}.png`,
           }));
 
-        const randomPopularIngredients = getRandomItems(
-          sortedIngredients,
-          20
-        );
+        const randomPopularIngredients = getRandomItems(sortedIngredients, 20);
         setPopularIngredients(randomPopularIngredients);
       } catch (error) {
         console.error("Lỗi khi lấy dữ liệu món ăn:", error);
@@ -78,8 +74,31 @@ export default function HomeScreen(props) {
     };
 
     fetchData();
-    loadFavorites();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadFavorites = async () => {
+        try {
+          const userId = auth.currentUser?.uid;
+          if (!userId) return;
+
+          const userRef = doc(db, "users", userId);
+          const userSnap = await getDoc(userRef);
+
+          if (userSnap.exists() && userSnap.data().favoriteMeals) {
+            setFavorites(userSnap.data().favoriteMeals);
+          } else {
+            setFavorites([]);
+          }
+        } catch (error) {
+          console.error("Lỗi khi tải danh sách yêu thích:", error);
+        }
+      };
+
+      loadFavorites();
+    }, [])
+  );
 
   const getRandomItems = (arr, count) => {
     const shuffled = [...arr];
@@ -112,30 +131,31 @@ export default function HomeScreen(props) {
   };
 
   const toggleFavorite = async (meal) => {
-    const exists = favorites.some((fav) => fav.idMeal === meal.idMeal);
-    let updatedFavorites;
-
-    if (exists) {
-      updatedFavorites = favorites.filter((fav) => fav.idMeal !== meal.idMeal);
-    } else {
-      updatedFavorites = [...favorites, meal];
-    }
-
-    setFavorites(updatedFavorites);
-    await AsyncStorage.setItem(
-      "favoriteMeals",
-      JSON.stringify(updatedFavorites)
-    );
-  };
-
-  const loadFavorites = async () => {
     try {
-      const stored = await AsyncStorage.getItem("favoriteMeals");
-      if (stored) {
-        setFavorites(JSON.parse(stored));
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const userRef = doc(db, "users", userId);
+      const userSnap = await getDoc(userRef);
+
+      let favorites = [];
+      if (userSnap.exists() && userSnap.data().favoriteMeals) {
+        favorites = userSnap.data().favoriteMeals;
       }
+
+      const exists = favorites.some((fav) => fav.idMeal === meal.idMeal);
+      let updatedFavorites;
+
+      if (exists) {
+        updatedFavorites = favorites.filter((fav) => fav.idMeal !== meal.idMeal);
+      } else {
+        updatedFavorites = [...favorites, meal];
+      }
+
+      await updateDoc(userRef, { favoriteMeals: updatedFavorites });
+      setFavorites(updatedFavorites);
     } catch (error) {
-      console.error("Lỗi khi load favorite meals:", error);
+      console.error("Lỗi khi cập nhật yêu thích:", error);
     }
   };
 
@@ -274,18 +294,12 @@ const styles = StyleSheet.create({
   flatListContainer: {
     marginBottom: 20,
   },
-  favoriteIcon: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-  },
   favoriteIconWrapper: {
     position: "absolute",
     top: 8,
     right: 8,
     zIndex: 1,
   },
-  
   heartBackground: {
     backgroundColor: "#fff",
     borderRadius: 20,
@@ -297,5 +311,4 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 3,
   },
-  
 });
