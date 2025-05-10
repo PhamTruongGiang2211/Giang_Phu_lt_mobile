@@ -427,5 +427,4 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
   },
-});
-
+});}
